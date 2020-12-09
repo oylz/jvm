@@ -1,4 +1,4 @@
-# some note
+## some note
 
 * https://blog.csdn.net/weixin_43194122/article/details/91526740
 
@@ -20,7 +20,7 @@
 
 ===============================================================
 
-# 0.GC日志
+## 0.GC日志
 
 xx GC (reason) [PSYoungGen: young.before->young.after(young.cap)] [ParOldGen: old.before->old.after(old.cap)] heap.before->heap.after(heap.cap), [Metaspace: meta.before->meta.after(meta.cap)]
 
@@ -65,7 +65,7 @@ xx GC (reason) [PSYoungGen: young.before->young.after(young.cap)] [ParOldGen: ol
 24778.165: [Full GC (Ergonomics) [PSYoungGen: 432128K->431374K(434176K)] [ParOldGen: 524003K->524003K(524288K)] 956131K->955377K(958464K), [Metaspace: 115712K->115712K(1163264K)], 0.8280003 secs] [Times: user=2.80 sys=0.00, real=0.83 secs] 
 ```
 
-# 1.jmap
+## 1.jmap
 
 * java8之后没有 **永生代**, 原先永生代的信息会被放入 metaspace
 * newratio(1, 表示 young与old比例是1:1)
@@ -129,7 +129,7 @@ PS Old Generation // ******* 2.old(老年代)
 ```
 
 
-# 2.arthas
+## 2.arthas
 
 ```
 Memory                                      used          total          max           usage          GC                                                                                            
