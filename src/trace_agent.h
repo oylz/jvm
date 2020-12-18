@@ -11,6 +11,7 @@
 #include <execinfo.h>
 #include <signal.h>
 #include "zqueue.h"
+#include "hsperfdata_parser.h"
 
 static pid_t get_tid() {
   static bool lacks_gettid = false;
@@ -69,22 +70,35 @@ private:
             throw agent_exception(error);\
         }\
 
+
 void stack_trace(){
+    {
+        char *user = getenv("USER");
+        std::string path = "/tmp/hsperfdata_";
+        path += std::string(user);
+        path += "/";
+        path += std::to_string(getpid());
+        hsperfdata_parser::parse(path);
+    }
         jvmtiStackInfo *stacks = NULL; 
         jint count = 0;
     
         jint rc = jvmti_->GetAllStackTraces(100, &stacks, &count); 
         fprintf(stderr, "\033[31m GetAllStackTraces, count:%d, rc:%d, tid:%x \033[0m\n",count, rc, get_tid());
+        return;
         for(jint i = 0; i < count; i++){
             jvmtiStackInfo stack = stacks[i];
             jvmtiFrameInfo *info = stack.frame_buffer;  
+            jvmtiThreadInfo ti;
+            jvmti_->GetThreadInfo(stack.thread, &ti);
+
             if(info == NULL){
+                fprintf(stderr, "\033[41m\tstack%d, tname:%s \033[0m\n",i, ti.name);
                 continue;
             }
             int fc = stack.frame_count;
-            jvmtiThreadInfo ti;
-            jvmti_->GetThreadInfo(stack.thread, &ti);
             fprintf(stderr, "\033[31m\tstack%d, tname:%s \033[0m\n",i, ti.name);
+
             for(int c = 0; c < fc; c++){
                 jvmtiFrameInfo ii = info[c];
                 jmethodID method = ii.method;
@@ -112,6 +126,7 @@ void stack_trace(){
 
 
 static zqueue<uint64_t> _queue;
+static bool _sleep = false;
 
 static void JNICALL worker(jvmtiEnv* jvmti, JNIEnv* jni, void *p){
     for (;;) {
@@ -122,8 +137,9 @@ static void JNICALL worker(jvmtiEnv* jvmti, JNIEnv* jni, void *p){
 }
 
 void sighandler(int signum){
-    _queue.push(gtm());
+    //_queue.push(gtm());
     //stack_trace();
+    _sleep = true;
 }
 
 
@@ -139,31 +155,21 @@ void JNICALL vm_init(jvmtiEnv *jvmti, JNIEnv *env, jthread thread){
 
 
 
-static const char *tname2(){
-    jthread th;
-    jvmtiError error = jvmti_->GetCurrentThread(&th);
-    if (error != JVMTI_ERROR_NONE) {
-        return "error tname_a";
-    }
-    jvmtiThreadInfo info;
-    error = jvmti_->GetThreadInfo(th, &info);
-    if (error != JVMTI_ERROR_NONE) {
-        return "error tname_b";
-    }
-    return info.name;
-}
-
 void JNICALL gc_start(jvmtiEnv *jvmti_env){
-    fprintf(stderr, "\033[34mnnnn beg gc, tid:%x, tname:%s==============================================\033[0m\n", get_tid(), tname2());
+    fprintf(stderr, "\033[34mnnnn beg gc, tid:%x==============================================\033[0m\n", get_tid());
 
-    kill(0, SIGUSR1);
-    //fprintf(stderr, "begin sleep 30s\n");
-    //usleep(30*1000*1000);
-    //fprintf(stderr, "end sleep 30s\n");
+    //kill(0, SIGUSR1);
+    _queue.push(gtm());
+
+    if(_sleep){
+        fprintf(stderr, "begin sleep 60s\n");
+        usleep(60*1000*1000);
+        fprintf(stderr, "end sleep 60s\n");
+    }
 }
 
 void JNICALL gc_finish(jvmtiEnv *jvmti_env){
-    fprintf(stderr, "\033[34muuuu end gc, tid:%x, tname:%s==============================================\033[0m\n", get_tid(), tname2());
+    fprintf(stderr, "\033[34muuuu end gc, tid:%x==============================================\033[0m\n", get_tid());
 }
 
 class trace_agent{
@@ -186,6 +192,7 @@ public:
         jvmtiCapabilities caps;
         memset(&caps, 0, sizeof(caps));
         caps.can_generate_garbage_collection_events = 1;
+        caps.can_tag_objects = 1;
         //caps.can_generate_exception_events = 1;
         jvmtiError error = jvmti_->AddCapabilities(&caps);
         CHECK_ERR
