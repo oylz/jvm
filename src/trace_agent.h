@@ -172,6 +172,55 @@ void JNICALL gc_finish(jvmtiEnv *jvmti_env){
     fprintf(stderr, "\033[34muuuu end gc, tid:%x==============================================\033[0m\n", get_tid());
 }
 
+void JNICALL thread_end(jvmtiEnv *jvmti_env, JNIEnv* jni_env, jthread thread){
+    jvmtiThreadInfo ti;
+    jvmti_->GetThreadInfo(thread, &ti);
+
+    fprintf(stderr, "\033[43m\t*******thread_end, tname:%s*******\033[0m\n", ti.name);
+}
+void JNICALL exception_fun(jvmtiEnv *jvmti_env,
+     JNIEnv* jni_env,
+     jthread thread,
+     jmethodID method,
+     jlocation location,
+     jobject exception,
+     jmethodID catch_method,
+     jlocation catch_location){
+    // Ljava/lang/ClassNotFoundException
+    // Ljava/lang/NoSuchMethodException
+    // Ljava/io/FileNotFoundException
+    // Ljava/lang/ArrayIndexOutOfBoundsException
+
+    char* class_name;
+    jclass exception_class = jni_env->GetObjectClass(exception);
+    jvmti_env->GetClassSignature(exception_class, &class_name, NULL);
+    fprintf(stderr, "Exception: %s\n", class_name);    
+
+    // stacktrace
+    jclass throwable_class = jni_env->FindClass("java/lang/Throwable");
+    jmethodID print_method = jni_env->GetMethodID(throwable_class, "printStackTrace", "()V");
+    jni_env->CallVoidMethod(exception, print_method);
+}
+void JNICALL object_alloc(jvmtiEnv *jvmti_env,
+     JNIEnv* jni_env,
+     jthread thread,
+     jobject object,
+     jclass object_klass,
+     jlong size){
+    char* class_name;
+    jvmti_env->GetClassSignature(object_klass, &class_name, NULL);
+    if(0==strncmp("Ljava", class_name, 5) || 0==strncmp("[Ljava", class_name, 6) ||
+        0==strncmp("Lorg", class_name, 4) || 0==strncmp("[Lorg", class_name, 5) ||
+        0==strncmp("Lsun", class_name, 4) || 0==strncmp("[Lsun", class_name, 5)){
+        return;
+    }
+    if(strlen(class_name) == 2){
+        return;
+    }
+    fprintf(stderr, "object_alloc: %s\n", class_name);    
+}
+
+
 class trace_agent{
 private:
 
@@ -193,7 +242,9 @@ public:
         memset(&caps, 0, sizeof(caps));
         caps.can_generate_garbage_collection_events = 1;
         caps.can_tag_objects = 1;
-        //caps.can_generate_exception_events = 1;
+        caps.can_signal_thread = 1;
+        caps.can_generate_exception_events = 1;
+        caps.can_generate_vm_object_alloc_events = 1;
         jvmtiError error = jvmti_->AddCapabilities(&caps);
         CHECK_ERR
     } 
@@ -203,6 +254,10 @@ public:
         callbacks.VMInit = &vm_init;
         callbacks.GarbageCollectionStart = gc_start;
         callbacks.GarbageCollectionFinish = gc_finish;
+        callbacks.ThreadEnd = thread_end;
+        //callbacks.Exception = exception_fun;
+        callbacks.VMObjectAlloc = object_alloc;
+
         jvmtiError error;
         error = jvmti_->SetEventCallbacks(&callbacks, sizeof(callbacks));
         CHECK_ERR
@@ -216,6 +271,15 @@ public:
         CHECK_ERR 
 
         error = jvmti_->SetEventNotificationMode(JVMTI_ENABLE, JVMTI_EVENT_GARBAGE_COLLECTION_FINISH, 0);
+        CHECK_ERR
+        
+        error = jvmti_->SetEventNotificationMode(JVMTI_ENABLE, JVMTI_EVENT_THREAD_END, 0);
+        CHECK_ERR
+
+        error = jvmti_->SetEventNotificationMode(JVMTI_ENABLE, JVMTI_EVENT_EXCEPTION, 0);
+        CHECK_ERR
+
+        error = jvmti_->SetEventNotificationMode(JVMTI_ENABLE, JVMTI_EVENT_VM_OBJECT_ALLOC, 0);
         CHECK_ERR
     }
 
