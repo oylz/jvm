@@ -5,6 +5,7 @@
 #include <mutex>
 #include <condition_variable>
 #include <sys/time.h>
+#include <chrono>
 
 static uint64_t gtm() {
     struct timeval tm;
@@ -40,8 +41,11 @@ public:
 
     bool try_pop(T &t) {
         std::unique_lock<std::mutex> lock(mutex_);
-        if (que_.empty()) {
-            return false;
+        
+        while(que_.empty()) {
+            if(std::cv_status::timeout == cv_.wait_for(lock, std::chrono::seconds(2))){
+                return false;
+            }
         }    
         t = que_.front();
         que_.pop();

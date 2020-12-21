@@ -1,6 +1,10 @@
 
 #if 1
 #include "trace_agent.h"
+
+std::mutex agent_lock::mu_;
+bool agent_lock::stop_ = false;
+
 JNIEXPORT jint JNICALL Agent_OnLoad(JavaVM *vm, char *options, void *reserved){
     fprintf(stderr, "Agent_OnLoad\n");
 
@@ -19,6 +23,8 @@ JNIEXPORT jint JNICALL Agent_OnLoad(JavaVM *vm, char *options, void *reserved){
 
 JNIEXPORT void JNICALL Agent_OnUnload(JavaVM *vm){
     fprintf(stderr, "Agent_OnUnload\n");
+    std::unique_lock<std::mutex> lock(agent_lock::mu_);
+    agent_lock::stop_ = true;
 }
 
 

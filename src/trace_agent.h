@@ -12,6 +12,7 @@
 #include <signal.h>
 #include "zqueue.h"
 #include "hsperfdata_parser.h"
+#include <mutex>
 
 static pid_t get_tid() {
   static bool lacks_gettid = false;
@@ -48,6 +49,11 @@ static jthread alloc_thread(JNIEnv *env){
 JavaVM *vm_ = NULL;
 jvmtiEnv *jvmti_ = NULL;
 
+struct agent_lock{
+public:
+    static std::mutex mu_;
+    static bool stop_;
+};
 
 struct agent_exception : public std::exception{
 public:
@@ -131,7 +137,13 @@ static bool _sleep = false;
 static void JNICALL worker(jvmtiEnv* jvmti, JNIEnv* jni, void *p){
     for (;;) {
         uint64_t tm = 0;
-        _queue.pop(tm);
+        if(!_queue.try_pop(tm)){
+            std::unique_lock<std::mutex> lock(agent_lock::mu_);
+            if(agent_lock::stop_){
+                break;
+            }
+            continue;
+        }
         stack_trace();
     }   
 }
@@ -178,6 +190,8 @@ void JNICALL thread_end(jvmtiEnv *jvmti_env, JNIEnv* jni_env, jthread thread){
 
     fprintf(stderr, "\033[43m\t*******thread_end, tname:%s*******\033[0m\n", ti.name);
 }
+
+#ifdef MONITOR_EXCEPTION_AND_ALLOC
 void JNICALL exception_fun(jvmtiEnv *jvmti_env,
      JNIEnv* jni_env,
      jthread thread,
@@ -219,7 +233,7 @@ void JNICALL object_alloc(jvmtiEnv *jvmti_env,
     }
     fprintf(stderr, "object_alloc: %s\n", class_name);    
 }
-
+#endif
 
 class trace_agent{
 private:
@@ -243,8 +257,12 @@ public:
         caps.can_generate_garbage_collection_events = 1;
         caps.can_tag_objects = 1;
         caps.can_signal_thread = 1;
+
+        #ifdef MONITOR_EXCEPTION_AND_ALLOC
         caps.can_generate_exception_events = 1;
         caps.can_generate_vm_object_alloc_events = 1;
+        #endif
+
         jvmtiError error = jvmti_->AddCapabilities(&caps);
         CHECK_ERR
     } 
@@ -255,8 +273,10 @@ public:
         callbacks.GarbageCollectionStart = gc_start;
         callbacks.GarbageCollectionFinish = gc_finish;
         callbacks.ThreadEnd = thread_end;
-        //callbacks.Exception = exception_fun;
+        #ifdef MONITOR_EXCEPTION_AND_ALLOC
+        callbacks.Exception = exception_fun;
         callbacks.VMObjectAlloc = object_alloc;
+        #endif
 
         jvmtiError error;
         error = jvmti_->SetEventCallbacks(&callbacks, sizeof(callbacks));
@@ -276,11 +296,13 @@ public:
         error = jvmti_->SetEventNotificationMode(JVMTI_ENABLE, JVMTI_EVENT_THREAD_END, 0);
         CHECK_ERR
 
+        #ifdef MONITOR_EXCEPTION_AND_ALLOC
         error = jvmti_->SetEventNotificationMode(JVMTI_ENABLE, JVMTI_EVENT_EXCEPTION, 0);
         CHECK_ERR
 
         error = jvmti_->SetEventNotificationMode(JVMTI_ENABLE, JVMTI_EVENT_VM_OBJECT_ALLOC, 0);
         CHECK_ERR
+        #endif
     }
 
 };

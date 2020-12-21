@@ -6,7 +6,7 @@
 * jvmti 关注 gc.start,gc.finish,thread.start,thread.end,exception 事件. 
     * gc.start 时调用 GetAllStackTraces (**需要注意可能会卡死**)---> 需要找一种机制在VMThread处理ParallelGCFailedAllocation前, 手动调下GetAllStackTraces
     * **需要关注 thread.end是否包含异常退出的线程事件**
-    * exception事件拦截所有异常
+    * exception事件拦截所有异常(启动时有很多异常, 这些可能是包冲突所致)
 
 * VM Thread繁忙时(jstack -F 都卡死): 只能使用 gdb, 此时, 如何知道 java 的 stacktraces ?, dump?
 ```
@@ -15,6 +15,7 @@ sudo gdb attach $ppid --batch -ex "thread apply all bt"
 
 * thread相关
     * druid存活情况
+    * druid连接数监控
     * redis存活情况
     * dubbo handler卡死监控
     * zk监控
