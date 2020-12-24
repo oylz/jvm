@@ -4,6 +4,8 @@
 
 std::mutex agent_lock::mu_;
 bool agent_lock::stop_ = false;
+mem_fuller *mem_fuller::self_ = NULL;
+thread_local bool mem_fuller::stack_trace_ = false;
 
 JNIEXPORT jint JNICALL Agent_OnLoad(JavaVM *vm, char *options, void *reserved){
     fprintf(stderr, "Agent_OnLoad\n");
@@ -32,7 +34,7 @@ JNIEXPORT void JNICALL Agent_OnUnload(JavaVM *vm){
 
 #include "hsperfdata_parser.h"
 int main(int argc, char **argv){
-    hsperfdata_parser::parse("/tmp/hsperfdata_xyz/5576");
+    hsperfdata_parser::parse(argv[1]);
     return 0;
 }
 #endif

@@ -7,25 +7,14 @@
 #include <string>
 #include <unistd.h>
 
-#include <sys/syscall.h>
 #include <execinfo.h>
 #include <signal.h>
 #include "zqueue.h"
 #include "hsperfdata_parser.h"
 #include <mutex>
+#include "trace_util.h"
 
-static pid_t get_tid() {
-  static bool lacks_gettid = false;
-  if (!lacks_gettid) {
-    pid_t tid = syscall(__NR_gettid);
-    if (tid != -1) {
-      return tid;
-    }   
-    lacks_gettid = true;
-  }
 
-  return getpid(); 
-}
 static jthread alloc_thread(JNIEnv *env){
     jclass thrClass = env->FindClass("java/lang/Thread");
     if ( thrClass == NULL ) {
@@ -78,7 +67,7 @@ private:
 
 
 void stack_trace(){
-    {
+    if(0){
         char *user = getenv("USER");
         std::string path = "/tmp/hsperfdata_";
         path += std::string(user);
@@ -88,9 +77,18 @@ void stack_trace(){
     }
         jvmtiStackInfo *stacks = NULL; 
         jint count = 0;
-    
+        fprintf(stderr, "\033[31mbeg GetAllStackTraces, tid:%x \033[0m\n", get_tid()); 
         jint rc = jvmti_->GetAllStackTraces(100, &stacks, &count); 
-        fprintf(stderr, "\033[31m GetAllStackTraces, count:%d, rc:%d, tid:%x \033[0m\n",count, rc, get_tid());
+        fprintf(stderr, "\033[31mend GetAllStackTraces, count:%d, rc:%d, tid:%x \033[0m\n",count, rc, get_tid());
+        static bool first = true;
+        if(first)
+        {
+            std::string cmd = "LD_PRELOAD= nohup /home/xyz/code/jdk1.8.0_241/bin/jstack ";
+            cmd += std::to_string(getpid());
+            cmd += " > /home/xyz/zoenet/jemalloc-5.2.1/ss.log 2>&1 &";
+            system(cmd.c_str());
+            first = false;
+        }
         return;
         for(jint i = 0; i < count; i++){
             jvmtiStackInfo stack = stacks[i];
@@ -132,7 +130,6 @@ void stack_trace(){
 
 
 static zqueue<uint64_t> _queue;
-static bool _sleep = false;
 
 static void JNICALL worker(jvmtiEnv* jvmti, JNIEnv* jni, void *p){
     for (;;) {
@@ -149,35 +146,38 @@ static void JNICALL worker(jvmtiEnv* jvmti, JNIEnv* jni, void *p){
 }
 
 void sighandler(int signum){
-    //_queue.push(gtm());
-    //stack_trace();
-    _sleep = true;
+    if(mem_fuller::instance()->is_full()){
+        mem_fuller::set_stack_trace();
+        fprintf(stderr, "is full, we beg getting stacktrace...\n");
+        _queue.push(gtm());
+        fprintf(stderr, "is full, we end getting stacktrace...\n");
+        //mem_fuller::instance()->notify();
+    }
 }
-
+void nf(int signum){
+    fprintf(stderr, "notify one\n");
+    mem_fuller::instance()->notify();
+}
 
 void JNICALL vm_init(jvmtiEnv *jvmti, JNIEnv *env, jthread thread){
     fprintf(stderr, "VMInit...\n");
-
+    if(jvmti_ == NULL){
+        fprintf(stderr, "jvmti_ is null...\n");
+        return;
+    }
     jvmtiError error = jvmti_->RunAgentThread(alloc_thread(env), &worker, NULL,
         JVMTI_THREAD_MAX_PRIORITY);
     CHECK_ERR
  
     signal(SIGUSR1, sighandler);
+    signal(SIGUSR2, nf);
 }
 
 
 
 void JNICALL gc_start(jvmtiEnv *jvmti_env){
     fprintf(stderr, "\033[34mnnnn beg gc, tid:%x==============================================\033[0m\n", get_tid());
-
-    //kill(0, SIGUSR1);
     _queue.push(gtm());
-
-    if(_sleep){
-        fprintf(stderr, "begin sleep 60s\n");
-        usleep(60*1000*1000);
-        fprintf(stderr, "end sleep 60s\n");
-    }
 }
 
 void JNICALL gc_finish(jvmtiEnv *jvmti_env){
@@ -188,9 +188,16 @@ void JNICALL thread_end(jvmtiEnv *jvmti_env, JNIEnv* jni_env, jthread thread){
     jvmtiThreadInfo ti;
     jvmti_->GetThreadInfo(thread, &ti);
 
-    fprintf(stderr, "\033[43m\t*******thread_end, tname:%s*******\033[0m\n", ti.name);
+    fprintf(stderr, "\033[33m*******thread_end, tname:%s*******\033[0m\n", ti.name);
 }
+void JNICALL thread_start(jvmtiEnv *jvmti_env,
+     JNIEnv* jni_env,
+     jthread thread){
+    jvmtiThreadInfo ti;
+    jvmti_->GetThreadInfo(thread, &ti);
 
+    fprintf(stderr, "\033[33m*******thread_start, tname:%s*******\033[0m\n", ti.name);
+}
 #ifdef MONITOR_EXCEPTION_AND_ALLOC
 void JNICALL exception_fun(jvmtiEnv *jvmti_env,
      JNIEnv* jni_env,
@@ -209,7 +216,7 @@ void JNICALL exception_fun(jvmtiEnv *jvmti_env,
     jclass exception_class = jni_env->GetObjectClass(exception);
     jvmti_env->GetClassSignature(exception_class, &class_name, NULL);
     fprintf(stderr, "Exception: %s\n", class_name);    
-
+    return;
     // stacktrace
     jclass throwable_class = jni_env->FindClass("java/lang/Throwable");
     jmethodID print_method = jni_env->GetMethodID(throwable_class, "printStackTrace", "()V");
@@ -273,9 +280,10 @@ public:
         callbacks.GarbageCollectionStart = gc_start;
         callbacks.GarbageCollectionFinish = gc_finish;
         callbacks.ThreadEnd = thread_end;
+        callbacks.ThreadStart = thread_start;
         #ifdef MONITOR_EXCEPTION_AND_ALLOC
         callbacks.Exception = exception_fun;
-        callbacks.VMObjectAlloc = object_alloc;
+        //callbacks.VMObjectAlloc = object_alloc;
         #endif
 
         jvmtiError error;
@@ -294,6 +302,9 @@ public:
         CHECK_ERR
         
         error = jvmti_->SetEventNotificationMode(JVMTI_ENABLE, JVMTI_EVENT_THREAD_END, 0);
+        CHECK_ERR
+        
+        error = jvmti_->SetEventNotificationMode(JVMTI_ENABLE, JVMTI_EVENT_THREAD_START, 0);
         CHECK_ERR
 
         #ifdef MONITOR_EXCEPTION_AND_ALLOC

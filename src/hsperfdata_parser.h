@@ -35,6 +35,16 @@ struct entry_header{
 };
 #pragma pack()
 
+struct mem_area{
+    int64_t max_;
+    int64_t size_;
+    int64_t used_;
+};
+bool parse_generation_eden(const std::string &name, int64_t value){
+}
+bool parse_generation_old(const std::string &name, int64_t value){
+}
+
 class hsperfdata_parser{
 private:
     static bool is_generation(const std::string &name){
