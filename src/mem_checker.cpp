@@ -34,7 +34,7 @@ bool mem_checker::pending_if_full(uint64_t in){
         mem = mem_;
     }
     uint64_t max = mem*1024 + in + LEFT_SPACE;
-    if(max >= 650*1024*1024){
+    if(max >= 750*1024*1024){
         if(mem_fuller::get_stack_trace()){
             return false;
         }

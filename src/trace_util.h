@@ -1,6 +1,7 @@
 #ifndef _TRACE_UTILH_
 #define _TRACE_UTILH_
 #include <sys/syscall.h>
+#include "zqueue.h"
 
 static pid_t get_tid() {
   static bool lacks_gettid = false;
@@ -33,20 +34,18 @@ public:
 
 class mem_fuller{
 private:
-    int f_mutex_;
-    bool full_;
     pthread_mutex_t c_mutex_;
     pthread_cond_t cond_;
     static thread_local bool stack_trace_;
 
     static mem_fuller *self_;
     mem_fuller(){
-        f_mutex_ = 0;
-        full_ = false;
         c_mutex_ = PTHREAD_MUTEX_INITIALIZER;
         cond_ = PTHREAD_COND_INITIALIZER;
     }
 public:
+    zqueue<uint64_t> queue_;
+
     static mem_fuller *instance(){
         if(self_ == NULL){
             self_ = new mem_fuller();
@@ -54,10 +53,7 @@ public:
         return self_;
     }
     bool pending(){
-        {
-            trace_lock lock(f_mutex_);
-            full_ = true;
-        }
+        queue_.push(gtm());
         if(!stack_trace_){
             char tname[512] = {0};
             pthread_t ptid = pthread_self(); 
@@ -73,20 +69,20 @@ public:
         }
         return false;
     }
-    bool is_full(){
-        trace_lock lock(f_mutex_);
-        return full_;
-    }
+
     static void set_stack_trace(){
         stack_trace_ = true;
     }
     static bool get_stack_trace(){
         return stack_trace_;
     }
-    void notify(){
+    void notify(bool all){
         pthread_mutex_lock(&c_mutex_);
         pthread_cond_signal(&cond_);
-        //pthread_cond_broadcast(&cond_);
+        if(all){
+            pthread_cond_broadcast(&cond_);
+            return;
+        }
         pthread_mutex_unlock(&c_mutex_);
     }
 };

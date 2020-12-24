@@ -50,9 +50,8 @@ sudo gdb attach $ppid --batch -ex "thread apply all bt"
 ## 内存相关
 * 堆外内存监控
 * -XX:NativeMemoryTracking=summary ---> jcmd 13906 VM.native_memory summary scale=MB
-* 一次性申请内存超过阈值时报警
 * hook alloc ---> 申请内存时, 如果当前物理内存快到上限, 即时打出stack(java&c++)上传
-    * 使用jemalloc优化内存
+    * 使用jemalloc优化内存?
     * 内存快达上限时阻塞并打印堆栈
 
 

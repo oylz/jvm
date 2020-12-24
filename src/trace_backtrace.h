@@ -44,10 +44,15 @@ static bool trace_backtrace_and_check_if_safepoint()
             }
         }
 
-        if(NULL!=strstr(name, "compiler_thread_loop") ||
-            NULL!=strstr(name, "safepoint") ||
-            NULL!=strstr(name, "VM_GetAllStackTraces") 
+        if(
+            NULL!=strstr(name, "VMThread") ||
+            NULL!=strstr(name, "VM_GetAllStackTraces") ||
+            NULL!=strstr(name, "CompileBroker::compiler_thread_loop")
+            // NULL!=strstr(name, "mem_checker")  
             ){
+            if(NULL==strstr(name, "mem_checker")){
+                fprintf(stderr, "pass thread:%s\n", name);
+            }
             rr = true;
         } 
         if(name != symbol){
@@ -60,6 +65,7 @@ static bool trace_backtrace_and_check_if_safepoint()
     if(rr){
         return rr;
     }
+    return rr;
     // print
     fprintf(stderr, "\033[31m |\033[32m |\033[33m |\033[34m |\033[35m"
         "nnnn----tid:%x(%d), %s:%d----\033[0m\n",

@@ -13,7 +13,7 @@
 #include "hsperfdata_parser.h"
 #include <mutex>
 #include "trace_util.h"
-
+#include <thread>
 
 static jthread alloc_thread(JNIEnv *env){
     jclass thrClass = env->FindClass("java/lang/Thread");
@@ -66,7 +66,7 @@ private:
         }\
 
 
-void stack_trace(){
+void stack_trace(bool print){
     if(0){
         char *user = getenv("USER");
         std::string path = "/tmp/hsperfdata_";
@@ -80,16 +80,9 @@ void stack_trace(){
         fprintf(stderr, "\033[31mbeg GetAllStackTraces, tid:%x \033[0m\n", get_tid()); 
         jint rc = jvmti_->GetAllStackTraces(100, &stacks, &count); 
         fprintf(stderr, "\033[31mend GetAllStackTraces, count:%d, rc:%d, tid:%x \033[0m\n",count, rc, get_tid());
-        static bool first = true;
-        if(first)
-        {
-            std::string cmd = "LD_PRELOAD= nohup /home/xyz/code/jdk1.8.0_241/bin/jstack ";
-            cmd += std::to_string(getpid());
-            cmd += " > /home/xyz/zoenet/jemalloc-5.2.1/ss.log 2>&1 &";
-            system(cmd.c_str());
-            first = false;
+        if(!print){
+            return;
         }
-        return;
         for(jint i = 0; i < count; i++){
             jvmtiStackInfo stack = stacks[i];
             jvmtiFrameInfo *info = stack.frame_buffer;  
@@ -132,6 +125,7 @@ void stack_trace(){
 static zqueue<uint64_t> _queue;
 
 static void JNICALL worker(jvmtiEnv* jvmti, JNIEnv* jni, void *p){
+    mem_fuller::set_stack_trace();
     for (;;) {
         uint64_t tm = 0;
         if(!_queue.try_pop(tm)){
@@ -141,23 +135,49 @@ static void JNICALL worker(jvmtiEnv* jvmti, JNIEnv* jni, void *p){
             }
             continue;
         }
-        stack_trace();
+        stack_trace(false);
     }   
 }
 
-void sighandler(int signum){
-    if(mem_fuller::instance()->is_full()){
-        mem_fuller::set_stack_trace();
-        fprintf(stderr, "is full, we beg getting stacktrace...\n");
-        _queue.push(gtm());
-        fprintf(stderr, "is full, we end getting stacktrace...\n");
-        //mem_fuller::instance()->notify();
+
+// beg safepoint
+static void safepoint_notify(zqueue<uint64_t> *qq){
+    while(1){
+        fprintf(stderr, "notify one\n");
+        mem_fuller::instance()->notify(false);
+        uint64_t tm = 0;
+        if(!qq->try_pop(tm)){
+            continue;
+        }
+        break;
     }
+    fprintf(stderr, "notify finish!\n");
 }
-void nf(int signum){
-    fprintf(stderr, "notify one\n");
-    mem_fuller::instance()->notify();
+static void JNICALL safepoint_worker(jvmtiEnv* jvmti, JNIEnv* jni, void *p){
+    mem_fuller::set_stack_trace();
+    for (;;) {
+        uint64_t tm = 0;
+        if(!mem_fuller::instance()->queue_.try_pop(tm)){
+            std::unique_lock<std::mutex> lock(agent_lock::mu_);
+            if(agent_lock::stop_){
+                break;
+            }
+            continue;
+        }
+
+        fprintf(stderr, "is full, we beg getting stacktrace...\n");
+        zqueue<uint64_t> qq;
+        std::thread th(safepoint_notify, &qq);
+        stack_trace(true);
+        qq.push(1);
+        th.join();
+        fprintf(stderr, "is full, we end getting stacktrace..., and we will exit\n");
+        mem_fuller::instance()->notify(true);
+        exit(123);
+    }   
 }
+// end safepoint
+
 
 void JNICALL vm_init(jvmtiEnv *jvmti, JNIEnv *env, jthread thread){
     fprintf(stderr, "VMInit...\n");
@@ -168,9 +188,11 @@ void JNICALL vm_init(jvmtiEnv *jvmti, JNIEnv *env, jthread thread){
     jvmtiError error = jvmti_->RunAgentThread(alloc_thread(env), &worker, NULL,
         JVMTI_THREAD_MAX_PRIORITY);
     CHECK_ERR
- 
-    signal(SIGUSR1, sighandler);
-    signal(SIGUSR2, nf);
+
+    error = jvmti_->RunAgentThread(alloc_thread(env), &safepoint_worker, NULL,
+        JVMTI_THREAD_MAX_PRIORITY);
+    CHECK_ERR
+
 }
 
 
