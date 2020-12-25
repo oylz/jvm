@@ -14,6 +14,8 @@
 #include <mutex>
 #include "trace_util.h"
 #include <thread>
+#include "ts/signal_handler.h"
+#include "jvm_inner.h"
 
 static jthread alloc_thread(JNIEnv *env){
     jclass thrClass = env->FindClass("java/lang/Thread");
@@ -90,11 +92,11 @@ void stack_trace(bool print){
             jvmti_->GetThreadInfo(stack.thread, &ti);
 
             if(info == NULL){
-                fprintf(stderr, "\033[41m\tstack%d, tname:%s \033[0m\n",i, ti.name);
+                fprintf(stderr, "\033[41m\tstack%d, tname:%s,tid:%d \033[0m\n",i, ti.name, get_jtid(stack.thread));
                 continue;
             }
             int fc = stack.frame_count;
-            fprintf(stderr, "\033[31m\tstack%d, tname:%s \033[0m\n",i, ti.name);
+            fprintf(stderr, "\033[31m\tstack%d, tname:%s,tid:%d \033[0m\n",i, ti.name, get_jtid(stack.thread));
 
             for(int c = 0; c < fc; c++){
                 jvmtiFrameInfo ii = info[c];
@@ -172,8 +174,9 @@ static void JNICALL safepoint_worker(jvmtiEnv* jvmti, JNIEnv* jni, void *p){
         qq.push(1);
         th.join();
         fprintf(stderr, "is full, we end getting stacktrace..., and we will exit\n");
-        mem_fuller::instance()->notify(true);
-        exit(123);
+        //mem_fuller::instance()->notify(true);
+        //exit(123);
+        break;
     }   
 }
 // end safepoint

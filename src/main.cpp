@@ -9,6 +9,8 @@ thread_local bool mem_fuller::stack_trace_ = false;
 
 JNIEXPORT jint JNICALL Agent_OnLoad(JavaVM *vm, char *options, void *reserved){
     fprintf(stderr, "Agent_OnLoad\n");
+    thoughtspot::StackTraceSignal::InstallInternalHandler();
+    thoughtspot::StackTraceSignal::InstallExternalHandler();
 
     try{
         trace_agent* agent = new trace_agent();
@@ -28,6 +30,8 @@ JNIEXPORT void JNICALL Agent_OnUnload(JavaVM *vm){
     std::unique_lock<std::mutex> lock(agent_lock::mu_);
     agent_lock::stop_ = true;
 }
+
+
 
 
 #else

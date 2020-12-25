@@ -46,13 +46,10 @@ static bool trace_backtrace_and_check_if_safepoint()
 
         if(
             NULL!=strstr(name, "VMThread") ||
-            NULL!=strstr(name, "VM_GetAllStackTraces") ||
-            NULL!=strstr(name, "CompileBroker::compiler_thread_loop")
+            NULL!=strstr(name, "VM_GetAllStackTraces") 
+            //NULL!=strstr(name, "CompileBroker::compiler_thread_loop")
             // NULL!=strstr(name, "mem_checker")  
             ){
-            if(NULL==strstr(name, "mem_checker")){
-                fprintf(stderr, "pass thread:%s\n", name);
-            }
             rr = true;
         } 
         if(name != symbol){
