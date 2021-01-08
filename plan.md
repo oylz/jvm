@@ -313,7 +313,8 @@ sudo strace -T -tt -f -e "brk,mmap,munmap" -k -fp $ppid
     	    7f4c2cf54fe2 java_start+0xf2 (/home/xyz/code/jdk-jdk8-b120/build/linux-x86_64-normal-server-release/jdk/lib/amd64/server/libjvm.so)
     	    7f4c2d5d46db start_thread+0xdb (/lib/x86_64-linux-gnu/libpthread-2.27.so)
     ```
-
+    
+    * [link1](https://lrita.github.io/2019/09/27/systemtap-profiling-pagefault/)
 
 
 
