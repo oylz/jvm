@@ -12,8 +12,12 @@
 
 #include "common/types.h"
 
-namespace thoughtspot {
+typedef void (*backtrace_cb)(const std::vector<int> &tids);
 
+namespace thoughtspot {
+void init_backtrace_cb(backtrace_cb cb);
+void backtrace();
+ 
 // A StackTraceCollector can be used for collecting stack traces of all threads
 // running in the current process.
 class StackTraceCollector {

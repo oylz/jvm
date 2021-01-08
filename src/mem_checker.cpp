@@ -1,90 +1,89 @@
 #include "mem_checker.h"
 #include <unistd.h>
 #include <stdio.h>
-#include "trace_util.h"
 #include <stdlib.h>
+#include <vector>
+#include <string>
 #include "trace_backtrace.h"
+#include <map>
+#include <sys/syscall.h>
+#include "zqueue.h"
 
-pthread_t mem_checker::tid_ = 0;
-int mem_checker::s_mutex_ = 0;
-bool mem_checker::stop_ = false;
-int mem_checker::m_mutex_ = 0;
-uint64_t mem_checker::mem_ = 0;
-mem_fuller *mem_fuller::self_ = NULL;
-thread_local bool mem_fuller::stack_trace_ = false;
-thread_local bool mem_checker::in_backtrace_ = false;
-
-
-void mem_checker::stop(){
-    {
-        trace_lock lock(s_mutex_); 
-        stop_ = true;
-    }
-    pthread_join(tid_, NULL);
-    fprintf(stderr, "we are exit finish!\n");
+static pid_t get_tid() {
+    pid_t tid = syscall(__NR_gettid);
+    return tid;
 }
 
-bool mem_checker::pending_if_full(uint64_t in){
-    if(in_backtrace_){
-        return false;
+struct trace_lock{
+private:
+    int *mutex_;
+public:
+    explicit inline trace_lock(int mutex){
+        mutex_ = &mutex;
+ 
+        while(!__sync_bool_compare_and_swap(mutex_, 0, 1)){
+            usleep(10*1000);//sleep 10ms
+        }
     }
-    uint64_t mem = 0;
-    {
+    inline ~trace_lock(){
+        __sync_bool_compare_and_swap(mutex_, 1, 0);
+    }
+};
+
+
+
+static int m_mutex_ = 0;
+static uint64_t mem_ = 0;
+static std::map<void *, int64_t> map_;
+
+void mem_checker::add(void *p, uint64_t len){
+
+    if(1){
         trace_lock lock(m_mutex_);
-        mem = mem_;
-    }
-    uint64_t max = mem*1024 + in + LEFT_SPACE;
-    if(max >= 700*1024*1024){
-        if(mem_fuller::get_stack_trace()){
-            return false;
+        mem_ += len;
+        map_.insert(std::make_pair(p, len));
+        std::vector<std::string> stacks;
+        trace_backtrace(stacks);
+        fprintf(stderr, "\033[31m |\033[32m |\033[33m |\033[34m |\033[35m"
+            "nnnn----tid:%x(%d), current mem:%lu, %s:%d----\033[0m\n",
+            get_tid(), get_tid(),
+            mem_,
+         __FILE__, __LINE__);
+        for(int i = 0; i < stacks.size(); i++){
+            const std::string &stack = stacks[i];
+            fprintf(stderr, "\033[31m |\033[32m |\033[33m |\033[34m |\033[35m" 
+                "\t#%-2d" PRIxPTR " %s " PRIxPTR "--tid:%x(%d)\n",
+                i,
+                stack.c_str(),
+                get_tid(), get_tid());
         }
-        in_backtrace_ = true;
-        bool tmp = trace_backtrace_and_check_if_safepoint();
-        in_backtrace_ = false;
-        if(tmp){
-            return false;
-        }
-        fprintf(stderr, "\033[41mmem:%lu, in:%lu\033[0m\n", mem*1024, in);
-        bool rr = mem_fuller::instance()->pending();
-        return rr;
+        fprintf(stderr, "\033[31m |\033[32m |\033[33m |\033[34m |\033[35m"
+            "uuuu----tid:%x(%d), %s:%d----\033[0m\n",
+            get_tid(), get_tid(),
+            __FILE__, __LINE__);
+
     }
-    return false;
+
 }
-void *mem_checker::run(void *in){
-    mem_fuller::set_stack_trace();
+
+void mem_checker::del(void *p){
+    if(p == NULL){
+        return;
+    }
+
     while(1){
-        bool stop = false;
-        {
-            trace_lock lock(s_mutex_);
-            stop = stop_;
-        }
-        if(stop){
+        trace_lock lock(m_mutex_);
+        std::map<void *, int64_t>::iterator it = map_.find(p);
+        if(it == map_.end()){
             break;
         }
-        FILE *fl = fopen("/proc/self/statm","r");
-        if(fl == NULL){
-            return NULL;
-        }
-        uint32_t rss = 0;
-        uint32_t res = 0;
-        fscanf(fl,"%u%u", &rss,&res);
-        fclose(fl); 
-        uint64_t mem = res*4;
-        {
-            trace_lock lock(m_mutex_);
-            mem_ = mem;
-        }
-        //fprintf(stderr, "mem:%lu\n", mem);
-        usleep(5*200*1000);
+        mem_ -= it->second;
+        map_.erase(it);
+        break;
     }
+
 }
-void mem_checker::start(){
-    mem_fuller::instance();
-    int rr = pthread_create(&tid_, NULL, run, NULL);
-    if(rr == -1){
-        fprintf(stderr, "\033[31merror to create thread\033[0m\n");
-    }
-} 
+
 
 
 

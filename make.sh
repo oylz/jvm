@@ -45,13 +45,15 @@ function make_agent(){
 }
 
 function make_parser(){
-    g++ --std=c++11 -o hsperfdata_parser src/main.cpp 
+    g++ -DPERF_DATA --std=c++11 -o hsperfdata_parser src/main.cpp 
 }
+
 
 ts="src/ts/common/sysutil.cc src/ts/signal_handler.cc"
 # google::Symbolize in glog
-g++ -ggdb --std=c++11 --shared -fPIC -D_GNU_SOURCE -o libhook.so src/hook.cpp src/mem_checker.cpp $ts -ldl -lpthread -lunwind -lglog
-make_agent
+g++ -ggdb --std=c++11 --shared -fPIC -D_GNU_SOURCE -o libhook.so src/hook.cpp src/mem_checker.cpp -ldl -lpthread -lunwind -lglog
+g++ -ggdb --std=c++11 --shared -fPIC -D_GNU_SOURCE -o libmm.so src/mm.cpp
+#make_agent
 
 # test
 #./hsperfdata_parser

@@ -477,18 +477,38 @@ auto StackTraceCollector::Collect(std::string* error) -> std::vector<Result> {
   return results;
 }
 
+backtrace_cb backtrace_cb_ = NULL;
+void init_backtrace_cb(backtrace_cb cb){
+    backtrace_cb_ = cb;
+}
+void backtrace(){
+    ExternalHandler(
+        0, NULL, NULL, GetExternalHandlerState().server_fd);
+}
+
 // static
 std::string StackTraceCollector::ToPrettyString(const std::vector<Result>& r) {
   std::ostringstream ss;
+
+  std::vector<int> tids;
   for (const auto& e : r) {
     if (e.tids.empty()) {
       ss << "No Threads" << std::endl;
       continue;
     }
+
+
     ss << "Threads: ";
+
+    for (int i = 0; i < static_cast<int>(e.tids.size()); i++) {
+      fprintf(stderr, "\t*******will push back tid:%d\n", e.tids[i]);
+      tids.push_back(e.tids[i]);
+    }
     for (int i = 0; i < static_cast<int>(e.tids.size()) - 1; ++i) {
       ss << e.tids[i] << ", ";
     }
+
+
     ss << *e.tids.rbegin() << std::endl;
     ss << "Stack trace:" << std::endl;
     for (const auto& elem : e.trace) {
@@ -497,6 +517,9 @@ std::string StackTraceCollector::ToPrettyString(const std::vector<Result>& r) {
       ss << std::setw(16) << addr.str() << " : " << elem.second << std::endl;
     }
     ss << std::endl;
+  }
+  if(NULL != backtrace_cb_){
+    backtrace_cb_(tids);
   }
   return ss.str();
 }
@@ -515,6 +538,7 @@ bool StackTraceSignal::InstallInternalHandler() {
   action.sa_flags = SA_RESTART | SA_SIGINFO;
   return 0 == sigaction(StackTraceSignal::InternalSignum(), &action, nullptr);
 }
+
 
 bool StackTraceSignal::InstallExternalHandler() {
   auto state = GetExternalHandlerState();
